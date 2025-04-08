@@ -2,7 +2,158 @@ module LinAl
   implicit none
 
 contains
-  
+  !********************************************************************************
+  !ConjGrad takes in matrix A, vector b, the size of them and the desired accuracy
+  !it outputs the solution x
+  !********************************************************************************
+  subroutine ConjGrad(A, b, x, n, accuracy)
+    implicit none
+    integer, intent(in) :: n
+    integer :: i, j, l
+    real, dimension(n), intent(out) :: x
+    real, dimension(n) :: b, r, p, y
+    real, dimension(n,n), intent(in):: A
+    real, intent(in) :: accuracy
+    real :: alpha, beta, E, Enew
+    logical :: symmetric
+
+    !check that A is symmetric
+    symmetric = .true.
+    do i = 1, n
+      do j = i + 1, n
+        if (A(i,j) /= A(j,i)) then
+          symmetric = .false.
+          print *, "Matrix is not symmetric"
+          exit
+        end if
+      end do
+    end do
+
+    !initialize x, r, p
+    x = 1.0
+    r = b - matmul(A,x)
+    p = r
+    E = sum(r**2)
+    l = 0
+    do while (sqrt(E) > accuracy) !condition on the desired accuracy
+      y = matmul(A,p)
+      alpha = E / dot_product(p, y)
+      x = x + alpha * p
+      r = r - alpha * y
+      Enew = sum(r**2)
+      beta = Enew / E
+      p = r + beta * p
+      E = Enew
+      l = l + 1 !to track the number of iterations
+    end do
+    print *, "Number of iterations:", l
+  end subroutine ConjGrad
+  !**************************************************************************
+  !the GaussJacobi subroutine takes the matrix A, the vector b, their size
+  !and the desire accuracy
+  !it outputs the solutions
+  !**************************************************************************
+  subroutine GaussJacobi(A, b, x, m, di, accuracy)
+    implicit none
+    character(len=30) :: filename
+    integer, intent(in) :: m
+    real, dimension(m,m), intent(in) :: A
+    real, dimension(m), intent(in) :: b
+    real, dimension(m,m) :: R
+    real, dimension(m,m) :: Dinv
+    real, dimension(m), intent(out) :: x
+    real, intent(in) :: accuracy
+    integer :: i, j, l
+    integer, intent(in) :: di
+    
+
+    Dinv = 0.0
+    R = 0.0
+    !populate the inverse of diagonal matrix D
+    do i = 1, m
+      do j = 1, m
+        if (i == j) then
+          Dinv(i,j) = 1.0 / A(i,j)
+        else
+          R(i,j) = A(i,j)
+        end if
+      end do
+    end do
+    l = 0
+    x = 1.0 !make a guess for x
+    write(filename, '(A, I0, A)') 'jacobierror_', di, '.txt'
+    open(unit=(10+di), file=filename, status='replace', action='write')
+    do while ((sqrt(sum((b - matmul(A,x))**2)))>accuracy)
+      x = matmul(Dinv,(b - matmul(R,x)))
+      write(10+di,*) sqrt(sum((b - matmul(A,x))**2))
+      l = l + 1
+    end do
+    close(10+di)
+    print *, "Number of iterations:", l 
+  end subroutine GaussJacobi
+  !**************************************************************************
+  !the GaussSeidel subroutine takes the matrix A, the vector b, their size
+  !and the desire accuracy
+  !it outputs the solutions
+  !**************************************************************************
+  subroutine GaussSeidel(A, b, x, m, di, accuracy)
+    implicit none
+    character(len=30) :: filename
+    integer, intent(in) :: m
+    real, dimension(m,m), intent(in) :: A
+    real, dimension(m), intent(in) :: b
+    real, dimension(m), intent(out) :: x
+    real, intent(in) :: accuracy
+    real :: L(m,m), U(m,m), D(m,m), DL(m,m), DLinv(m,m)
+    integer :: i, j, iter
+    logical :: f
+    integer :: s(m)
+    integer, intent(in) :: di
+
+    !split A into L and U
+    L = 0.0
+    U = 0.0
+    D = 0.0
+    do i = 1, m
+      do j = 1, m
+        if (i > j) then
+          L(i,j) = A(i,j)
+        else if (i < j) then
+          U(i,j) = A(i,j)
+        else
+          D(i,j) = A(i,j)
+        end if
+      end do
+    end do
+
+    DLinv = 0.0
+    do i = 1, m
+      DLinv(i,i) = 1.0
+    end do
+
+    DL = D + l
+    !use my LU decomposition and back substitution modules for the inverse
+    call LUDecomposition(DL,m,f,s)
+    call LUBackSubstitution(DL,DLinv,m,m,s)
+    x = 1.0
+    iter = 0
+    write(filename, '(A, I0, A)') 'seidelerror_', di, '.txt'
+    open(unit=(10+di), file=filename, status='replace', action='write')
+    do while ((sqrt(sum((b - matmul(A,x))**2)))>accuracy)
+      write(10+di,*) sqrt(sum((b - matmul(A,x))**2))
+      x = matmul(DLinv,(b - matmul(U,x)))
+      iter = iter + 1
+    end do
+    close(10+di)
+    print *, "Number of iterations:", iter
+  end subroutine GaussSeidel
+
+  !********************************************************
+  ! Householder based Hessenberg reduction
+  !input: matrix A, number of rows and columns
+  !output: matrix A in Hessenberg form
+  !********************************************************
+
   subroutine Hessenberg(m, n, A)
     implicit none
     integer, intent(in) :: m, n
@@ -306,7 +457,7 @@ contains
       pivot = abs(A(j,j))
       k = j
       do i = j + 1, m
-        if (A(i,j)>pivot) then
+        if (abs(A(i,j))>pivot) then
           pivot = abs(A(i,j))
           k = i
         end if
